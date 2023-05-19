@@ -6,7 +6,7 @@ wrec monitors automatically your webserver log for pre configured patterns
 when a specific pattern is found it releases a command on the server
 this script creates an html page that can be transfer to any portable device
 and be opened with a web browser , from there the user can launch anything remotely
-on his server in case needed just by sending a specific pre configured pattern
+on his server in case needed just by sending a specific pre configured 404 pattern
 to the web server running in his server , it works with nginx and apache access.log
 This script needs a daemon running to monitor the web server logs witch can be installed
 using the config script .
