@@ -1,0 +1,158 @@
+#!/bin/bash
+
+# Web Remote Execution Code Daemon
+# https://github.com/peterpt/wrec
+
+installpath="/usr/local/share/wrec"
+nap="1m" # Tempo de pausa , 1 minuto
+
+function godream () {
+# função de pausa para depois recomeçar de novo	
+sleep "$nap"
+}
+function execcode () {
+chkcodeln=$(grep -wn "$rdcode" "$browsercalls" | tr ":" " " | awk '{print$1}')
+readexecode=$(sed -n "${chkcodeln}p" "$execommands")
+idname=$(sed -n "${chkcodeln}p" "$codename")
+#escreve no daemon log
+echo ".............................." >> "$logfile"
+echo "Pattern Match : $idname  " >> "$logfile" 
+echo "Pattern : $rdcall" >> "$logfile"
+echo "Executing : $readexecode" >> "$logfile"
+echo ".............................." >> "$logfile"
+echo "$srchcall" >> "$logfile"
+exec "$readexecode" >/dev/null 2>&1 &	
+}
+
+
+function parselines () {
+# função para verificar comandos repetidos e quais já foram processados anteriormente
+cntlog=$(wc -l "$webtmp" | awk '{print$1}') # conta linhas do web log
+echo "a= $cntlog"
+
+
+
+for a in $(seq "$cntlog")
+do
+schptt=$(sed -n "${a}p" "$webtmp" | grep -w "$rdcall") # em cada linha vê se existe a pattern
+if [[ ! -z "$schptt" ]] # existe
+then
+srchcall=$(sed -n "${a}p" "$webtmp" | grep -w "$rdcall") # Dados para daemon log
+schptn="$a" 	
+if [[ ! -f "$processed" ]] # Ficheiro de linhas processadas não existe
+then
+echo "$schptn" > "$processed"	# adiciona a linha
+rdcode=$(sed -n "${a}p" "$webtmp" | grep -w "$rdcall" | awk '{print$7}') # le a pattern
+execcode # segue para executar código
+else # ficheiro de linhas processadas existe
+
+seeknmb=$(grep -w "$schptn" "$processed") # procura numero da linha do weblog no ficheiro 
+if [[ -z "$seeknmb" ]] # caso não encontre
+then
+echo "$schptn" >> "$processed" # adiciona a linha ao ficheiro
+rdcode=$(sed -n "${a}p" "$webtmp" | grep -w "$rdcall" | awk '{print$7}') # le a pattern
+execcode # executa o código
+fi # fecha if caso não encontre linha
+fi # fecha if linhas processadas
+fi # fecha if de encontrar a pattern
+done
+	
+	
+}
+
+
+function httplog () {
+
+if [[ -z "$readlog" ]] # Ficheiro do web log ainda não foi configurado no wrec-conf , dorme e volta a verificar
+then
+godream
+readconf
+elif [[ ! -f "$readlog" ]]
+then
+godream
+readconf
+fi
+rm -rf "$webtmp" >/dev/null 2>&1
+cp "$readlog" "$webtmp" # nginx and apache get mad if we change anything in current log , so we copy it
+cntln=$(wc -l "$browsercalls" | awk '{print$1}') # vê numero de entradas configuradas para pesquisa no log
+for i in $(seq "$cntln")
+do
+if [[ "$i" != "1" ]]  #ignora a primeira linha
+then
+rdcall=$(sed -n "${i}p" "$browsercalls") # Le a linha na configuração
+
+srchcall=$(grep -w "$rdcall" "$webtmp") # pesquisa essa linha no weblog
+
+if [[ ! -z "$srchcall" ]] # A linha existe
+then
+cntlines=$(grep -w "$rdcall" "$webtmp" | wc -l | awk '{print$1}') # quantas linhas existem
+if [[ "$cntlines" -gt "1" ]] # se for superior a 1 entao segue para parselines
+then
+parselines
+else # é menos do que 1 linha encontrada
+srchweblog=$(grep -wn "$rdcall" "$webtmp" | tr ":" " " | awk '{print$1}') # ve o numero da linha no weblog
+if [[ ! -f "$processed" ]] # ficheiro de linhas processadas nao existe ainda
+then
+echo "$srchweblog" > "$processed" # adiciona numero da linha ao ficheiro
+rdcode=$(grep -w "$rdcall" "$webtmp" | awk '{print$7}') # indetifica a pattern no weblog
+execcode # segue para execução do código
+else # ficheiro de linhas processadas já existe
+fndln=$(grep -w "$srchweblog" "$processed" | awk '{print$1}') # procura se o numero da linha já foi inserido anteriormente
+if [[ -z "$fndln" ]] # Ainda não
+then
+echo "$srchweblog" >> "$processed" # adiciona numero de linha ao ficheiro
+rdcode=$(grep -w "$rdcall" "$webtmp" | awk '{print$7}') # identifica a pattern
+execcode # executa o código
+fi # fecha if de procura de linha
+fi # fecha if de procura de ficheiro de linhas processadas
+fi # fecha if de resultados superiores a 1
+fi # fecha if de identificação da linha no web log
+fi # fecha if se o numero da linha não for a primeira nas configurações
+done # fecha loop
+godream # vai dormir
+readconf # relê a configuração caso existam modificações
+}
+
+
+function readconf () {
+	
+# configurações 	
+codename="$installpath/codename.conf" # nome da intrução
+browsercalls="$installpath/browsercalls.conf" # como será chamada no web browser
+execommands="$installpath/execommands.conf" # o que executar no servidor
+weblogconf="$installpath/weblog.conf" # localização do access.log do nginx ou apache
+logfile="$installpath/daemon.log" # Log onde é guardado todos os comandos executados	
+logdate="$installpath/weblog.date" # log com a data de criação do access.log do nginx ou apache
+processed="$installpath/processed.log" # Linhas já processadas anteriormente
+webtmp="$installpath/webtmp.file"
+if [[ ! -f "$weblogconf" ]]
+then
+godream
+readconf
+fi
+readlog=$(sed -n 2p "$weblogconf") # lê localização do access.log configurado
+
+
+gtdate=$(stat "$readlog" | grep "Birth" | sed 's/Birth://g' | sed 's/^ *//g') # vê a data de criação do access.log pelo webserver
+if [[ -f "$logdate" ]] # caso já exista ficheiro com data de criação do weblog
+then
+readdate=$(sed -n 1p "$logdate") # lê a data que foi lá escrita
+if [[ "$gtdate" != "$readdate" ]] # compara a data de criação do atual access.log com a ultima vez que o daemon log a verificou
+then
+# caso nao seja iguais então remove 
+rm -rf "$logdate" >/dev/null 2>&1
+rm -rf "$processed" >/dev/null 2>&1
+echo "$gtdate" > "$logdate"
+fi
+else
+echo "$gtdate" > "$logdate"
+fi
+if [[ ! -f "$browsercalls" && ! -f "$execommands" && ! -f "$codename" && ! -f "$weblogconf" ]]
+then
+godream
+readconf
+fi
+
+httplog
+}
+readconf

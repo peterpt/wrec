@@ -1,0 +1,651 @@
+#!/bin/bash
+# Web Remote Execution Code 
+# https://github.com/peterpt/wrec
+
+# This script contains the full code to remote execute functions on a server based on
+# preconfigured patterns written by the user , the concept is that a daemon is looking
+# each minute on webserver logs for specific patterns that match with what was configured
+# In case a pattern matches then an execution will be made on original server based on
+# what user had configured to do .
+
+# Imagine that ssh server somehow crashed and it is not running on your server and you need
+# to restart it , on a normal circunstance you will need to go to phisically to the server
+# and restart it , with wrec basically what is needed is to send a preconfigured pattern for that
+
+# Example for restarting ssh or any other service or script on server , even rebooting it if needed
+
+# Web pattern to configure "/remote/ssh" , or any other thing less obvious like "/18273567/572893A"
+# The execution code for this pattern should be : "service ssh restart" or "systemctl restart ssh" 
+# Depending on witch user rights wrec daemon is running , if it is root then it is not needed sudo
+
+clear
+var="$@"
+installpath="/usr/local/share/wrec"
+curdir=$(pwd)
+version="1.0"
+
+#colours
+green='\033[92m'
+yellow='\e[0;33m'
+orange='\e[38;5;166m'
+cyan='\e[0;36m'
+red='\e[0;31m'
+white='\e[0;37m'
+
+function firstinstall () {
+clear
+echo -e "$green""Wrec was installed in your system"
+echo -e "$green""Write :$white wrec-conf$green anywhere to configure it"
+echo ""
+echo "Wrec requires an active daemon running , do not forget to install it"
+echo -e "using the command :$white wrec-conf -i $green after your configuration is complete"
+echo "This script will place a bash script on daemon installation on "
+echo -e "directory$white /etc/network/if-up.d $green to run the daemon at computer start"
+echo -e "Use the switch$white wrec-conf -h $green for more details"
+echo "Also check if your webserver is running , nginx or apache after"
+echo -e "you configure everything .$white"	
+exit 0	
+}
+
+if [[ ! -d "$installpath" ]]
+then
+mkdir -p "$installpath"
+cp $curdir/web1.conf "$installpath/"
+cp $curdir/web2.conf "$installpath/"
+cp $curdir/wrec-daemon "$installpath/"
+cp $curdir/wrec-conf "$installpath/"
+cp $curdir/wrec-conf "/usr/local/sbin/"
+chmod +x /usr/local/sbin/wrec-conf
+firstinstall
+fi
+
+
+# configuration files
+codename="$installpath/codename.conf"
+browsercalls="$installpath/browsercalls.conf"
+execommands="$installpath/execommands.conf"
+weblogconf="$installpath/weblog.conf"
+
+
+#codigo para copiar wrec-conf para sbin
+
+
+function help () {
+	
+echo -e "$green""Web Remote Execution Code $version"
+echo "Switches :"
+echo -e "$white"" -i$green (Install Daemon)"
+echo -e "$white"" -u$green (Uninstall Daemon)"
+echo -e "$white"" -a$green (Add new code to config)"
+echo -e "$white"" -c$green (Read current configuration)"
+echo -e "$white"" -f$green (Edit current configuration)"
+echo -e "$white"" -d$green (Delete configuration files)"
+echo -e "$white"" -w$green (Create personal Webpage with config)"
+echo -e "$white"" -h$green (This Help)"
+echo ""
+notes
+exit 0
+}
+function htmlgen () {
+if [[ -f "$browsercalls" && -f "$execommands" && -f "$codename" ]]
+then	
+echo -e "$green""Please write the domain/ip and http protocol for your server"
+echo ""
+echo -e "$green""Example 1 :$white http://mydomain.com"
+echo -e "$green""Example 2 :$white https://mydomain.com"
+echo -e "$green""Example 3 :$white http://192.168.1.130"
+echo ""
+getip=$(hostname -I | awk '{print$1}')
+echo -e "$green""Your current ip address is :$orange $getip"
+echo -n -e "$green""Your Domain/Ip :$white "
+read -r domain
+if [[ -z "$domain" ]]
+then
+echo -e "$red""Empty input is not valid"
+sleep 2
+htmlgen
+fi  
+echo ""
+echo -e "$green""Are you sure this is the right Domain/ip ?"
+echo -e "$green""In case it is not then remote html will not work."
+echo ""
+echo -e "$green""Do You confirm :$white $domain"
+echo -n -e "$green""(Y/N) :$white "
+read -r choice
+case "$choice" in
+Y|y|Yes|yes|YES)
+cat "$installpath/web1.conf" > "$installpath/remote.html"
+echo "<p align=\"center\" class=\"style4\">Remote Execution for : $domain </p>" >> "$installpath/remote.html"
+echo "<p align=\"center\">&nbsp;</p>" >> "$installpath/remote.html"
+echo "<table width=\"317\" border=\"1\" align=\"center\">" >> "$installpath/remote.html"
+cntln=$(wc -l "$codename" | awk '{print$1}')
+for i in $(seq "$cntln")
+do
+if [[ "$i" != "1" ]]
+then
+name=$(sed -n ${i}p "$codename")
+web=$(sed -n ${i}p "$browsercalls")
+code=$(sed -n ${i}p "$execommands")
+echo "<tr>" >> "$installpath/remote.html"
+echo "<td width=\"241\" height=\"32\"><span class=\"style6\">$name</span></td>" >> "$installpath/remote.html"
+echo "<td width=\"60\"><div align=\"center\">" >> "$installpath/remote.html"
+echo "<input type=\"submit\" name=$name id=$name value=\"Execute\" onclick=\" window.open('$domain$web','_blank')\" />    </td>" >> "$installpath/remote.html"	
+echo "</tr>" >> "$installpath/remote.html"	
+fi
+done
+cat "$installpath/web2.conf" >> "$installpath/remote.html"
+if [[ -f "$installpath/remote.html" ]]
+then
+echo -e "$green""Your Remote html page can be found in"
+echo -e "$green""location :$white $installpath/remote.html"
+echo ""
+exit 0
+else
+echo -e "$error""There was an error building the remote webpage"
+exit 0
+fi
+;;
+N|n|No|no|NO)
+clear
+htmlgen
+;;
+*)
+exit 0
+;;
+esac
+else
+echo -e "$green""There is no configuration files yet generated"
+echo -e "$green""You should run first$white wrec-conf -a$green first to build them"
+exit 0
+fi
+}	
+# configuration of web server log file to watch
+function weblog () {
+echo -e "$green""Insert the location of your nginx/apache access.log file"
+echo -e "$green""Example :$white /var/log/nginx/access.log"
+echo -n -e "$green""Path of file : $white"
+read -r logpath
+if [[ -z "$logpath" ]]
+then
+echo -e "$red""Empty input detected"
+sleep 2
+weblog
+else
+if [[ ! -f "$logpath" ]]
+then
+echo -e "$red""File not found in :$white $logpath"
+sleep 2
+weblog
+fi
+fi
+echo "# Do not change manually this file" > "$weblogconf"
+echo "$logpath" >> "$weblogconf" 
+echo -e "$white"""
+exit 0	
+}
+
+# Execution code to run on server
+function execode () {
+clear
+echo -e "$green""Write server execution code for :$white $webcode"
+echo -e "$green""Example 1 :$white service ssh restart"
+echo ""
+echo -ne "$green" "Execution Code :$white "
+read -r execcode
+if [[ -z "$execcode" ]]
+then
+echo -e "$red""Empty Input , Returning"
+sleep 2	
+execode
+else
+clear
+echo -e "$green""Do You want to save this config ?$orange (Y/N)"
+echo -e "$green""Name of instruction :$white $name"
+echo -e "$green""Web Call Code :$white $webcode"
+echo -e "$green""Execution Code :$white $execcode"	
+echo ""
+echo -ne "$green" "Y|N :$white"
+read -r choice 
+case "$choice" in 
+Y|y|Yes|yes|YES)
+if [[ ! -f "$browsercalls" && ! -f "$execommands" && ! -f "$codename" ]]
+then
+echo "# Do Not Change this file manually !!!" > "$browsercalls"
+echo "$webcode" >> "$browsercalls"
+echo "# Do Not Change this file manually !!!" > "$execommands"
+echo "$execcode" >> "$execommands"
+echo "# Do Not Change this file manually !!!" > "$codename"
+echo "$name" >> "$codename"
+else
+cntfl1=$(wc -l "$browsercalls" | awk '{print$1}')
+cntfl2=$(wc -l "$execommands" | awk '{print$1}')
+cntfl3=$(wc -l "$codename" | awk '{print$1}')
+
+if [ "$cntfl1" != "$cntfl2" ] && [ "$cntfl2" != "$cntfl3" ]
+then
+echo -e "$red""Error :$green Webcalls file and execution file does not match the same number of lines"
+echo "If you manually edited any of them then delete both files and start all over again"
+echo "Both files are located in :$white $installpath"
+exit 0
+else
+echo "$webcode" >> "$browsercalls"
+echo "$execcode" >> "$execommands"
+echo "$name" >> "$codename"
+fi
+fi
+;;
+N|n|No|no|NO)
+exit 0
+;;
+*)
+echo -e "$red""Invalid Input , Exiting"
+sleep 1
+exit 0
+;;
+esac
+echo -ne "$green" "Do You Want to add more codes ? (Y|N) :"
+read -r resp
+case "$resp" in 
+Y|y|Yes|yes|YES)
+browserconfig
+execode
+;;
+N|n|No|no|NO)
+exit 0
+;;
+*)
+echo -e "$red""Invalid Input , Exiting"
+sleep 1
+exit 0
+;;
+esac	
+fi
+}
+function notes () {
+echo -e "$green""Make sure your webserver (nginx/apache)is running"
+	
+}
+
+# configuration of browser remote requests to execute codes on server
+
+function browserconfig () {
+	
+echo -e "$green""Please Enter a Name for this instruction "
+echo -e "$green""Example :$white Reboot System"
+echo -n -e "$green""Write Name :$white"
+read -r name	
+
+if [[ -z "$name" ]]
+then
+browserconfig
+fi
+echo ""
+echo -e "$green""Please write and instruction to where you will trigger the execution code"
+echo -e "$green""example 1 :$white /mycodes/restartssh$green | example 2 :$white /remotexec/250325A"
+echo -e "$green""From example 1 , to trigger the execution code the web request would be :"
+echo -e "$green""$whitehttp://yourserverdomain/mycodes/restartssh"
+echo ""
+echo -ne "$green""Write web call code :$white "
+read -r webcode
+if [[ -z "$webcode" ]]
+then
+echo -e "$red""Empty Input , Returning"
+sleep 2
+browserconfig
+else
+execode
+fi	
+}
+#Install Daemon on /etc/network/if-up.d/ folder
+swt=$(echo "$var" | grep -w "\-i")
+if [[ ! -z "$swt" ]] # -i Switch detected
+then
+  if [[ -f "/usr/local/sbin/wrec-daemon" ]] # check if it is already installed
+  then
+  chkwrec=$(pgrep wrec-daemon) # It is installed , check if it is running
+       if [[ ! -z "$chkwrec" ]]
+       then
+       echo -e "$green""Wrec Daemon is already installed and running"
+       else # Installed but not running
+       echo -e "$green""Wrec Daemon is installed but it is not running"
+       echo -n -e "$green""Do you wish to start it ? (Y|N) :$white "
+       read -r svc
+       case "$svc" in
+       Y|y|Yes|YES)
+       wrec-daemon & # Start Daemon
+       sleep 1
+       chkwrec=$(pgrep wrec-daemon) # Recheck if it is running
+            if [[ ! -z "$chkwrec" ]]
+            then
+            echo -e "$green""Wrec Daemon is Running"
+            else
+            echo -e "$red""Wrec Daemon is not Running"
+            fi
+exit 0
+;;
+N|n|No|no|NO)
+exit 0
+;;
+*)
+exit 0
+;;
+esac
+       fi
+
+                 if [[ -f "$installpath/wrec-daemon" ]] # Not Installed
+                 then
+                 cp "$installpath/wrec-daemon" /usr/local/sbin/
+                 chmod +x /usr/local/sbin/wrec-daemon
+                 if [[ ! -f /etc/network/if-up.d/wrec-start ]]
+                 then
+                 echo "#!/bin/bash" > /etc/network/if-up.d/wrec-start
+                 echo "chksvc=$(pgrep wrec-daemon)" >> /etc/network/if-up.d/wrec-start
+                 echo "if [[ -z \"$chksvc\" ]]" >> /etc/network/if-up.d/wrec-start
+                 echo "then" >> /etc/network/if-up.d/wrec-start
+                 echo "echo \"Starting Wrec-Daemon\"" >> /etc/network/if-up.d/wrec-start
+                 echo "cd /usr/local/sbin" >> /etc/network/if-up.d/wrec-start
+                 echo "./wrec-daemon > /dev/null &" >> /etc/network/if-up.d/wrec-start
+                 echo "else" >> /etc/network/if-up.d/wrec-start
+                 echo "echo \"Wrec Daemon is already running\"" >> /etc/network/if-up.d/wrec-start
+                 echo "fi" >> /etc/network/if-up.d/wrec-start
+                 echo "exit 0" >> /etc/network/if-up.d/wrec-start
+                 chmod +x /etc/network/if-up.d/wrec-start
+                 fi
+                 echo -e "$green""Wrec Daemon Installed Succefully"
+                 echo -n -e "$green""Do you wish to start it ? (Y|N) :$white "
+                 read -r svc
+                 case "$svc" in
+                 Y|y|Yes|YES)
+                cd /etc/network/if-up.d/
+                ./wrec-start
+                cd "$curdir"
+                 sleep 1
+                 chkwrec=$(pgrep wrec-daemon)
+                         if [[ ! -z "$chkwrec" ]]
+                         then
+                         echo -e "$green""Wrec Daemon is Running"
+                         else
+                         echo -e "$red""Wrec Daemon is not Running"
+                         fi
+                     
+ echo -e "$white"""                 
+exit 0
+;;
+                 N|n|No|no|NO)
+                  echo -e "$white""" 
+exit 0
+;;
+                 *)
+                  echo -e "$white""" 
+exit 0
+;;
+esac   
+                                fi
+                                else
+                  cp "$installpath/wrec-daemon" /usr/local/sbin/
+                 chmod +x /usr/local/sbin/wrec-daemon
+                 if [[ ! -f /etc/network/if-up.d/wrec-start ]]
+                 then
+                 echo "#!/bin/bash" > /etc/network/if-up.d/wrec-start
+                 echo "chksvc=$(pgrep wrec-daemon)" >> /etc/network/if-up.d/wrec-start
+                 echo "if [[ -z \"$chksvc\" ]]" >> /etc/network/if-up.d/wrec-start
+                 echo "then" >> /etc/network/if-up.d/wrec-start
+                 echo "echo \"Starting Wrec-Daemon\"" >> /etc/network/if-up.d/wrec-start
+                 echo "cd /usr/local/sbin" >> /etc/network/if-up.d/wrec-start
+                 echo "./wrec-daemon > /dev/null &" >> /etc/network/if-up.d/wrec-start
+                 echo "else" >> /etc/network/if-up.d/wrec-start
+                 echo "echo 'Wrec Daemon is already running'" >> /etc/network/if-up.d/wrec-start
+                 echo "fi" >> /etc/network/if-up.d/wrec-start
+                 echo "exit 0" >> /etc/network/if-up.d/wrec-start
+                 chmod +x /etc/network/if-up.d/wrec-start
+                 fi
+                 echo -e "$green""Wrec Daemon Installed Succefully"
+                 echo -n -e "$green""Do you wish to start it ? (Y|N) :$white "
+                 read -r svc
+                 case "$svc" in
+                 Y|y|Yes|YES)
+                 cd /etc/network/if-up.d/ 
+                 ./wrec-start 
+                 cd "$curdir"
+                 sleep 1
+                 chkwrec=$(pgrep wrec-daemon)
+                         if [[ ! -z "$chkwrec" ]]
+                         then
+                         echo -e "$green""Wrec Daemon is Running"
+                         else
+                         echo -e "$red""Wrec Daemon is not Running"
+                         fi
+                     
+ echo -e "$white"""                 
+exit 0
+;;
+                 N|n|No|no|NO)
+                  echo -e "$white""" 
+exit 0
+;;
+                 *)
+                  echo -e "$white""" 
+exit 0
+;;
+esac   
+                  exit 0
+      fi
+fi
+
+#Uninstall Daemon fom /etc/network/if-up.d/ folder
+swt=$(echo "$var" | grep -w "\-u")
+if [[ ! -z "$swt" ]]
+then
+if [[ -f "/etc/network/if-up.d/wrec-start" ]]
+then
+chkwrec=$(pgrep wrec-daemon)
+if [[ ! -z "$chkwrec" ]]
+then
+echo -ne "$green""-Killing Running Process ..."
+pkill wrec-daemon 
+echo "Done"
+echo -ne "$green""Removing Daemon from startup ..."
+rm -rf /etc/network/if-up.d/wrec-start >/dev/null 2>&1
+echo -e "Done$white"
+exit 0
+fi
+else
+echo -e "$orange""- Wrec Daemon is not Installed"
+exit 0
+fi
+fi
+
+function confedit () {
+if [[ ! -f "$browsercalls" && ! -f "$execommands" && ! -f "$codename" ]]
+then	
+echo -e "$green""There are no configuration files to edit"
+echo -e "$green""You should run first$white wrec-conf -a$green first to build them"
+exit 0	
+fi
+cntlns=$(wc -l "$codename" | awk '{print$1}')
+# cntlns=$((cntlns+1))	
+echo -e "$green"".......Current Configurations........"
+
+for i in $(seq "$cntlns")
+do	
+if [[ "$i" != "1" ]]
+then
+cname=$(sed -n "${i}p" "$codename" | sed 's/^ *//g')
+bcall=$(sed -n "${i}p" "$browsercalls" | sed 's/^ *//g')
+excom=$(sed -n "${i}p" "$execommands" | sed 's/^ *//g')
+echo -e "$green""$i -$white $cname$green | browser call code :$white $bcall$green | Server Execution :$white $excom"	
+fi
+done
+echo -e "$green""......................................"
+echo -e "$green""Choose line to edit or press Ctrl+C to exit"
+echo -ne "$green""Line number :$white "	
+read -r lnnmb
+if [[ -z "$lnnmb" ]]
+then
+echo -e "$error""Invalid Input"
+clear
+confedit
+fi
+cname=$(sed -n "${lnnmb}p" "$codename" | sed 's/^ *//g')
+bcall=$(sed -n "${lnnmb}p" "$browsercalls" | sed 's/^ *//g')
+excom=$(sed -n "${lnnmb}p" "$execommands" | sed 's/^ *//g')
+
+echo -e "$green""Current Line to be Edited "
+echo -e "$green"".........................."
+echo -e "$green""Name :$white $cname"
+echo -e "$green""Browser Call :$white $bcall"
+echo -e "$green""Server Execution :$white $excom"
+echo -e "$green""..........................."
+echo ""
+echo -e "$green""Write a New Name for this current line :$white $cname "
+echo -ne "$green" "New Name :$white "
+read -r nname
+echo -e "$green""Write a New Browser Call for this current line :$white $bcall "
+echo -ne "$green" "New Browser Call :$white "
+read -r nbcall
+echo -e "$green""Write a New Execution code for this current line :$white $excom "
+echo -ne "$green""New Server Execution :$white "
+read -r nexcom
+sed -i "$lnnmb c\ $nname" "$codename"
+sed -i "$lnnmb c\ $nbcall" "$browsercalls"
+sed -i "$lnnmb c\ $nexcom" "$execommands"
+sed -i 's/^ *//g' "$codename" && sed -i 's/^ *//g' "$browsercalls" && sed -i 's/^ *//g' "$execommands" &
+echo -e "$green""Done"
+echo ""
+echo -e "$green""If wrec-daemon is running then there is no need to restart it"
+echo -e "$green""wrec daemon will assume automatically the new configuration$white"
+exit 0
+}
+
+
+function readconf () {
+if [[ -f "$browsercalls" && -f "$execommands" && -f "$codename" ]]
+then
+cntlns=$(wc -l "$codename" | awk '{print$1}')
+echo -e "$green"".........Current Configuration.............."
+for i in $(seq "$cntlns")
+do
+# We want to avoid reading line 1 on each file because it is the warning to not manually edit it
+if [[ "$i" != "1" ]]
+then
+# read specific line number , remove the number of that line and clean up the empty space on the beginning
+cname=$(sed -n "${i}p" "$codename" | sed 's/^ *//g')
+bcall=$(sed -n "${i}p" "$browsercalls" | sed 's/^ *//g')
+excom=$(sed -n "${i}p" "$execommands" | sed 's/^ *//g')
+echo -e "$green""Pattern Name :$white $cname$green  | Web Call :$white http|s://yourdomain.com$bcall$green | Running Server Code :$white $excom"
+fi
+done
+if [[ -f "$weblogconf" ]]
+then
+readlog=$(sed -n 2p "$weblogconf")
+echo -e "$green""............................................."
+echo -e "$green""Web Server Log Location :$white$readlog"
+echo -e "$green""............................................."
+exit 0
+fi
+else
+echo -e "$green""There is no configuration files yet generated"
+echo -e "$green""You should run first$white wrec-conf -a$green first to build them"
+fi
+exit 0			
+}
+
+
+#Read Config
+swt=$(echo "$var" | grep -w "\-c")
+if [[ ! -z "$swt" ]]
+then
+readconf
+fi
+
+#Add New code
+swt=$(echo "$var" | grep -w "\-a")
+if [[ ! -z "$swt" ]]
+then
+browserconfig
+fi
+#Delete
+swt=$(echo "$var" | grep -w "\-d")
+if [[ ! -z "$swt" ]]
+then
+if [[ -f "$codename" ]]
+then
+rm -rf "$codename" >/dev/null 2>&1
+rm -rf "$browsercalls" >/dev/null 2>&1
+rm -rf "$execommands" >/dev/null 2>&1
+rm -rf "$weblogconf" >/dev/null 2>&1
+else
+echo -e "$green""No Configuration files found to be deleted"
+echo -e "$green""You should run first$white wrec-conf -a$green first to build them"
+exit 0
+fi
+fi
+#Web page generation with launch codes
+swt=$(echo "$var" | grep -w "\-w")
+if [[ ! -z "$swt" ]]
+then
+htmlgen
+fi
+#Help
+swt=$(echo "$var" | grep -w "\-h")
+if [[ ! -z "$swt" ]]
+then
+help
+fi
+# Edit Current configuration
+swt=$(echo "$var" | grep -w "\-f")
+if [[ ! -z "$swt" ]]
+then
+echo -e "$green""What do you need to change ?"
+echo -e "$green""1 -$orange Web server log location"
+echo -e "$green""2 -$orange Web Call Instructions"
+echo -e "$green""3 -$orange Exit"
+echo ""
+echo -ne "$green" "Choose 1,2 or 3 :$white "
+read -r opt
+case "$opt" in
+1)
+clear
+weblog
+exit 0
+;;
+2)
+clear
+confedit
+;;
+3)
+exit 0
+;;
+*)
+exit 0
+;;
+esac
+fi
+
+# on first run if no web log is configured then start config process
+if [[ ! -f "$weblogconf" ]]
+then
+echo -e "$green""Wrec $version (Web Remote Execution Code)"
+echo "...................................................."
+echo ""
+weblog
+else
+chklog=$(sed -n 2p "$weblogconf")
+if [[ ! -f "$chklog" ]]
+then
+echo -e "$red""Webserver Log file not found in :$white $chklog"
+echo -e "$green""Restart Configuration$white"
+sleep 3
+rm "$weblogconf"
+exit 0
+fi
+fi
+help
+#if [[ ! -f "$browsercalls" ]]
+#then
+#browserconfig
+#else
+#help
+#fi
+
+
