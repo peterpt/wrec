@@ -37,6 +37,9 @@ using the config script .
  * Html Web Creation to Remote activate commands
   ![alt text](https://i.postimg.cc/Bnpm7N7q/htmlremote.png)
   
+ * Daemon Log Example file (/usr/local/share/wrec/daemon.log)
+  ![alt text](https://i.postimg.cc/Y02PCVsy/daemonlog.png) 
+  
   Video
   * Soon
 
