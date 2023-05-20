@@ -147,7 +147,11 @@ fi
 else
 echo "$gtdate" > "$logdate"
 fi
-if [[ ! -f "$browsercalls" && ! -f "$execommands" && ! -f "$codename" && ! -f "$weblogconf" ]]
+if [[ ! -f "$browsercalls" && ! -f "$execommands" ]]
+then
+godream
+readconf
+elif [[ ! -f "$codename" && ! -f "$weblogconf" ]]
 then
 godream
 readconf
