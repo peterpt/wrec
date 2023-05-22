@@ -41,7 +41,7 @@ using the config script .
   ![alt text](https://i.postimg.cc/Y02PCVsy/daemonlog.png) 
   
   Video
-[![Watch the video](https://youtu.be/5RqGCfKjPp8)
+<video src='https://youtu.be/5RqGCfKjPp8' width=180/>
 
 
 
