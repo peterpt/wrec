@@ -21,7 +21,7 @@ echo "Pattern : $rdcall" >> "$logfile"
 echo "Executing : $readexecode" >> "$logfile"
 echo ".............................." >> "$logfile"
 echo "$srchcall" >> "$logfile"
-exec "$readexecode" >/dev/null 2>&1 &	
+$readexecode 2>&1 &	
 }
 
 
